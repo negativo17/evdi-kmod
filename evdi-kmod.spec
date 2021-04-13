@@ -27,7 +27,7 @@ License:        GPLv2
 URL:            https://github.com/DisplayLink/evdi
 
 Source0:        https://github.com/DisplayLink/evdi/archive/v%{version}.tar.gz#/evdi-%{version}.tar.gz
-Patch:          https://github.com/DisplayLink/evdi/commit/0f1ad2153de1bc144f2359afa91fbe3fa07e9e7a.patch
+Patch0:         https://github.com/DisplayLink/evdi/commit/0f1ad2153de1bc144f2359afa91fbe3fa07e9e7a.patch
 
 # get the needed BuildRequires (in parts depending on what we build for)
 BuildRequires:  kmodtool
