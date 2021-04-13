@@ -22,7 +22,7 @@
 Name:           evdi-kmod
 Version:        1.9.1
 Release:        1%{?dist}
-Summary:        DisplayLink VGA/HDMI display driver
+Summary:        DisplayLink VGA/HDMI display driver kernel module
 License:        GPLv2
 URL:            https://github.com/DisplayLink/evdi
 
