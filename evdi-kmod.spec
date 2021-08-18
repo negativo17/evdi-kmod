@@ -7,21 +7,18 @@
 
 %global debug_package %{nil}
 
-%global zipmodules 1
-
 %define __spec_install_post \
   %{__arch_install_post}\
   %{__os_install_post}\
   %{__mod_compress_install_post}
 
 %define __mod_compress_install_post \
-  if [ "%{zipmodules}" -eq "1" ] && [ $kernel_version ]; then \
-    find %{buildroot}/usr/lib/modules/ -type f -name '*.ko' | xargs xz; \
-  fi
+  find %{buildroot} -type f -name '*.ko' | xargs %{__strip} --strip-debug; \
+  find %{buildroot} -type f -name '*.ko' | xargs xz;
 
 Name:           evdi-kmod
 Version:        1.9.1
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        DisplayLink VGA/HDMI display driver kernel module
 License:        GPLv2
 URL:            https://github.com/DisplayLink/evdi
@@ -68,5 +65,8 @@ done
 %{?akmod_install}
 
 %changelog
+* Wed Aug 18 2021 Simone Caronni <negativo17@gmail.com> - 1.9.1-2
+- Fix compression and add stripping.
+
 * Tue Apr 13 2021 Simone Caronni <negativo17@gmail.com> - 1:1.9.1-1
 - First build.
