@@ -1,0 +1,969 @@
+diff --git a/.travis.yml b/.travis.yml
+index e924cec..6b90b7a 100644
+--- a/.travis.yml
++++ b/.travis.yml
+@@ -21,6 +21,7 @@ env:
+   - KVER=5.8
+   - KVER=5.9
+   - KVER=5.11
++  - KVER=5.12
+   - KVER=master
+ 
+ jobs:
+diff --git a/docs/details.md b/docs/details.md
+index 3cedbb0..6c17650 100644
+--- a/docs/details.md
++++ b/docs/details.md
+@@ -255,6 +255,7 @@ This notification is sent for a cursor position change. It is raised only when c
+ 	#!c
+ 	void (*crtc_state_handler)(int state, void* user_data);
+ 
++This event is deprecated. Please use DPMS mode change event instead.
+ Sent when DRM's CRTC changes state. The `state` is a value that's forwarded from the kernel.
+ 
+ #### DDC/CI data notification
+@@ -285,7 +286,7 @@ and use in all following API calls to indicate which EVDI device you communicate
+ ### evdi_selectable
+ 
+ A typedef denoting a file descriptor you can watch to know when there are events being signalled from the kernel module.
+-Each opened EVDI device handle has its own descriptor to watch.
++Each opened EVDI device handle has its own descriptor to watch, which you can get with `evdi_get_event_ready`.
+ When the descriptor becomes ready to read from, the application should call `evdi_handle_events` to dispatch notifications to its handlers.
+ 
+ ### evdi_device_status
+diff --git a/docs/quickstart.md b/docs/quickstart.md
+index 1a2b2a2..0cbaa6d 100644
+--- a/docs/quickstart.md
++++ b/docs/quickstart.md
+@@ -11,7 +11,7 @@ Applications using EVDI will typically:
+ * find a free EVDI node, or add a new node if none was found; then open it
+ * connect to the EVDI node, letting the DRM subsystem know what is the monitor that the application drives
+ * allocate memory for, and register buffer(s) that will be used to receive screen updates
+-* request and consume updates and other notifications in a loop
++* request and consume updates and other notifications in a loop whenever the kernel [signals updates are ready](details.md#evdi_selectable)
+ 
+ ## EVDI nodes
+ 
+@@ -21,15 +21,15 @@ In order to distinguish non-EVDI nodes from a node that's created by EVDI kernel
+ The library only allows to connect to DRM nodes that are created by EVDI.
+ Attempts to connect to other nodes (e.g. related to a built-in GPU) will fail.
+ 
+-!!! note
+-    Using EVDI nodes currently requires administrative rights, so applications must be run with `sudo`, or by root.
+-
+ ### Adding new nodes (pre v1.9.0)
+ 
++!!! note
++    Requires administrative rights. To call this your application needs to
++    have been run with `sudo`, or by root.
++
+ In order to create a new EVDI `cardX` node, call `evdi_add_device` function.
+ A single call adds one additional DRM card node that can later be used to connect to.
+ 
+-
+ At the moment, every extra screen that you want to manage needs a separate node.
+ 
+ ### Opening EVDI node (pre v1.9.0)
+@@ -39,6 +39,10 @@ This returns an `evdi_handle` that you will use for following API calls, or `EVD
+ 
+ ### Requesting EVDI node (since v1.9.0)
+ 
++!!! note
++    Requires administrative rights. To call this your application needs to
++    have been run with `sudo`, or by root.
++
+ Adding and opening evdi devices is easier since libevdi v1.9.0. It's sufficient to call `evdi_open_attached_to(NULL)` in order to add a new evdi node and open it.
+ 
+ It is possible to bind evdi devices with usb devices if it is necessary to show such relationship in sysfs.
+@@ -49,11 +53,28 @@ e.g.
+ A `evdi_open_attached_to("usb:2-2.1")` call will link `/sys/bus/usb/devices/2-2.1/evdi.0` to
+ `/sys/bus/platform/devices/evdi.0` which is the first available evdi node.
+ 
++If an available device exists calling this does not require administrative
++rights. Otherwise, administrative rights are needed to create a new device.
++You can ensure a device is available by
++[configuring the kernel module](details.md#module-parameters) to create devices
++when it is loaded.
+ 
+ ### Closing EVDI node
+ 
+ In order to close the handle, call `evdi_close`.
+ 
++### Removing EVDI nodes
++
++!!! note
++    Requires administrative rights. To write to this file your application
++    needs to have been run with `sudo`, or by root.
++
++Write to `/sys/devices/evdi/remove_all`. For example:
++
++```bash
++echo 1 | sudo tee /sys/devices/evdi/remove_all
++```
++
+ ## Connecting and disconnecting
+ 
+ Connecting to EVDI tells DRM subsystem that there is a monitor connected, and from this moment the system is aware of an extra display.
+@@ -92,16 +113,15 @@ Data requests to this adapter for DDC/CI (on address 0x37) are passed to userspa
+ 
+ ## Running loop
+ 
+-After registering buffers, the application should start requesting updates for them. This is done using `evdi_request_update`.
+-You should call it when you intend to consume pixels for the screen.
+-
+-Once the request to update buffer is handled by the kernel module, you can use `evdi_grab_pixels` to get the data in your app.
+-This also includes finding out which areas of the buffer are in fact modified, compared to a previous update.
++You are expected to promptly handle events and to
++[request updates](details.md#requesting-an-update) and
++[grab pixels](details.md#grabbing-pixels) regularly for any virtual monitor you
++have connected. If you fail to do so the device may become unresponsive.
+ 
+ ## Events and notifications
+ 
+ Due to its design and split of responsibilities between the kernel and userspace code, EVDI's working model is an asynchronous one.
+-Therefore, your application should monitor a file descriptor exposed by `evdi_get_event_ready` function, and once it becomes ready to read,
++Therefore, your application should monitor a file descriptor exposed by `evdi_get_event_ready` function, and whenever it becomes ready to read,
+ call `evdi_handle_events` to dispatch events that are being signalled to the right handlers.
+ 
+ The handlers are defined in your application and are shared with the library through a `evdi_event_context` structure that `evdi_handle_events` uses for dispatching the call.
+diff --git a/module/evdi_connector.c b/module/evdi_connector.c
+index 239ce0c..d4feb47 100644
+--- a/module/evdi_connector.c
++++ b/module/evdi_connector.c
+@@ -50,11 +50,14 @@ static int evdi_get_modes(struct drm_connector *connector)
+ 	ret = drm_mode_connector_update_edid_property(connector, edid);
+ #endif
+ 
+-	if (!ret)
+-		ret = drm_add_edid_modes(connector, edid);
+-	else
+-		EVDI_ERROR("Failed to set edid modes! error: %d", ret);
++	if (ret) {
++		EVDI_ERROR("Failed to set edid property! error: %d", ret);
++		goto err;
++	}
+ 
++	ret = drm_add_edid_modes(connector, edid);
++	EVDI_INFO("(card%d) Edid property set", evdi->dev_index);
++err:
+ 	kfree(edid);
+ 	return ret;
+ }
+@@ -69,7 +72,7 @@ static enum drm_mode_status evdi_mode_valid(struct drm_connector *connector,
+ 		return MODE_OK;
+ 
+ 	if (mode_area > evdi->sku_area_limit) {
+-		EVDI_WARN("(dev=%d) Mode %dx%d@%d rejected\n",
++		EVDI_WARN("(card%d) Mode %dx%d@%d rejected\n",
+ 			evdi->dev_index,
+ 			mode->hdisplay,
+ 			mode->vdisplay,
+@@ -87,11 +90,11 @@ evdi_detect(struct drm_connector *connector, __always_unused bool force)
+ 
+ 	EVDI_CHECKPT();
+ 	if (evdi_painter_is_connected(evdi->painter)) {
+-		EVDI_DEBUG("(dev=%d) poll connector state: connected\n",
++		EVDI_INFO("(card%d) Connector state: connected\n",
+ 			   evdi->dev_index);
+ 		return connector_status_connected;
+ 	}
+-	EVDI_DEBUG("(dev=%d) poll connector state: disconnected\n",
++	EVDI_VERBOSE("(card%d) Connector state: disconnected\n",
+ 		   evdi->dev_index);
+ 	return connector_status_disconnected;
+ }
+diff --git a/module/evdi_cursor.c b/module/evdi_cursor.c
+index 862052e..15a82dc 100644
+--- a/module/evdi_cursor.c
++++ b/module/evdi_cursor.c
+@@ -55,7 +55,7 @@ static void evdi_cursor_set_gem(struct evdi_cursor *cursor,
+ 	if (obj)
+ 		drm_gem_object_get(&obj->base);
+ 	if (cursor->obj)
+-#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE
++#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE || defined(EL8)
+ 		drm_gem_object_put(&cursor->obj->base);
+ #else
+ 		drm_gem_object_put_unlocked(&cursor->obj->base);
+diff --git a/module/evdi_debug.c b/module/evdi_debug.c
+index 6911c19..56f29b6 100644
+--- a/module/evdi_debug.c
++++ b/module/evdi_debug.c
+@@ -10,7 +10,7 @@
+ 
+ #include "evdi_debug.h"
+ 
+-void evdi_log_process(void)
++void evdi_log_process(char *buf, size_t size)
+ {
+ 	int task_pid = (int)task_pid_nr(current);
+ 	char task_comm[TASK_COMM_LEN] = { 0 };
+@@ -21,13 +21,13 @@ void evdi_log_process(void)
+ 		char process_comm[TASK_COMM_LEN] = { 0 };
+ 
+ 		get_task_comm(process_comm, current->group_leader);
+-		EVDI_INFO("Task %d (%s) of process %d (%s)\n",
++		snprintf(buf, size, "Task %d (%s) of process %d (%s)",
+ 			  task_pid,
+ 			  task_comm,
+ 			  (int)task_pid_nr(current->group_leader),
+ 			  process_comm);
+ 	} else {
+-		EVDI_INFO("Task %d (%s)\n",
++		snprintf(buf, size, "Task %d (%s)",
+ 			  task_pid,
+ 			  task_comm);
+ 	}
+diff --git a/module/evdi_debug.h b/module/evdi_debug.h
+index 186d253..b642744 100644
+--- a/module/evdi_debug.h
++++ b/module/evdi_debug.h
+@@ -53,6 +53,6 @@
+ #define EVDI_ENTER() EVDI_VERBOSE("enter\n")
+ #define EVDI_EXIT() EVDI_VERBOSE("exit\n")
+ 
+-void evdi_log_process(void);
++void evdi_log_process(char *buf, size_t size);
+ 
+ #endif /* EVDI_DEBUG_H */
+diff --git a/module/evdi_drm_drv.c b/module/evdi_drm_drv.c
+index 236fcbb..8d2afcd 100644
+--- a/module/evdi_drm_drv.c
++++ b/module/evdi_drm_drv.c
+@@ -79,7 +79,7 @@ static void evdi_disable_vblank(__always_unused struct drm_device *dev,
+ #endif
+ 
+ static struct drm_driver driver = {
+-#if KERNEL_VERSION(5, 4, 0) <= LINUX_VERSION_CODE
++#if KERNEL_VERSION(5, 4, 0) <= LINUX_VERSION_CODE || defined(EL8)
+ 	.driver_features = DRIVER_MODESET | DRIVER_GEM | DRIVER_ATOMIC,
+ #else
+ 	.driver_features = DRIVER_MODESET | DRIVER_GEM | DRIVER_PRIME
+@@ -87,11 +87,12 @@ static struct drm_driver driver = {
+ #endif
+ 	.unload = evdi_driver_unload,
+ 
++	.open = evdi_driver_open,
+ 	.postclose = evdi_driver_postclose,
+ 
+ 	/* gem hooks */
+ #if KERNEL_VERSION(5, 11, 0) <= LINUX_VERSION_CODE
+-#elif KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE
++#elif KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE || defined(EL8)
+ 	.gem_free_object_unlocked = evdi_gem_free_object,
+ #else
+ 	.gem_free_object = evdi_gem_free_object,
+@@ -147,6 +148,7 @@ static int evdi_driver_setup(struct drm_device *dev)
+ 
+ 	evdi->ddev = dev;
+ 	dev->dev_private = evdi;
++	evdi->dev_index = dev->primary->index;
+ 
+ 	evdi->cursor_events_enabled = false;
+ 	ret =  evdi_cursor_init(&evdi->cursor);
+@@ -209,6 +211,16 @@ void evdi_driver_unload(struct drm_device *dev)
+ 	kfree(evdi);
+ }
+ 
++int evdi_driver_open(struct drm_device *drm_dev, __always_unused struct drm_file *file)
++{
++	struct evdi_device *evdi = drm_dev->dev_private;
++	char buf[100];
++
++	evdi_log_process(buf, sizeof(buf));
++	EVDI_INFO("(card%d) Opened by %s\n", evdi->dev_index, buf);
++	return 0;
++}
++
+ static void evdi_driver_close(struct drm_device *drm_dev, struct drm_file *file)
+ {
+ 	struct evdi_device *evdi = drm_dev->dev_private;
+@@ -226,10 +238,11 @@ void evdi_driver_preclose(struct drm_device *drm_dev, struct drm_file *file)
+ void evdi_driver_postclose(struct drm_device *drm_dev, struct drm_file *file)
+ {
+ 	struct evdi_device *evdi = drm_dev->dev_private;
++	char buf[100];
+ 
+-	EVDI_DEBUG("(dev=%d) Process tries to close us, postclose\n",
+-		   evdi ? evdi->dev_index : -1);
+-	evdi_log_process();
++	evdi_log_process(buf, sizeof(buf));
++	EVDI_INFO("(card%d) Closed by %s\n",
++		   evdi->dev_index, buf);
+ 
+ 	evdi_driver_close(drm_dev, file);
+ }
+diff --git a/module/evdi_drm_drv.h b/module/evdi_drm_drv.h
+index 9d83e96..a862638 100644
+--- a/module/evdi_drm_drv.h
++++ b/module/evdi_drm_drv.h
+@@ -88,6 +88,7 @@ struct drm_encoder *evdi_encoder_init(struct drm_device *dev);
+ 
+ int evdi_driver_load(struct drm_device *dev, unsigned long flags);
+ void evdi_driver_unload(struct drm_device *dev);
++int evdi_driver_open(struct drm_device *drm_dev, struct drm_file *file);
+ void evdi_driver_preclose(struct drm_device *dev, struct drm_file *file_priv);
+ void evdi_driver_postclose(struct drm_device *dev, struct drm_file *file_priv);
+ 
+@@ -145,7 +146,6 @@ void evdi_painter_send_update_ready_if_needed(struct evdi_painter *painter);
+ void evdi_painter_dpms_notify(struct evdi_device *evdi, int mode);
+ void evdi_painter_mode_changed_notify(struct evdi_device *evdi,
+ 				      struct drm_display_mode *mode);
+-void evdi_painter_crtc_state_notify(struct evdi_device *evdi, int state);
+ unsigned int evdi_painter_poll(struct file *filp,
+ 			       struct poll_table_struct *wait);
+ 
+diff --git a/module/evdi_fb.c b/module/evdi_fb.c
+index 58fec4e..38c3eae 100644
+--- a/module/evdi_fb.c
++++ b/module/evdi_fb.c
+@@ -319,7 +319,7 @@ static void evdi_user_framebuffer_destroy(struct drm_framebuffer *fb)
+ 
+ 	EVDI_CHECKPT();
+ 	if (efb->obj)
+-#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE
++#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE || defined(EL8)
+ 		drm_gem_object_put(&efb->obj->base);
+ #else
+ 		drm_gem_object_put_unlocked(&efb->obj->base);
+@@ -441,7 +441,7 @@ static int evdifb_create(struct drm_fb_helper *helper,
+ 
+ 	return ret;
+  out_gfree:
+-#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE
++#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE || defined(EL8)
+ 	drm_gem_object_put(&efbdev->efb.obj->base);
+ #else
+ 	drm_gem_object_put_unlocked(&efbdev->efb.obj->base);
+@@ -471,7 +471,7 @@ static void evdi_fbdev_destroy(__always_unused struct drm_device *dev,
+ 	if (efbdev->efb.obj) {
+ 		drm_framebuffer_unregister_private(&efbdev->efb.base);
+ 		drm_framebuffer_cleanup(&efbdev->efb.base);
+-#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE
++#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE || defined(EL8)
+ 		drm_gem_object_put(&efbdev->efb.obj->base);
+ #else
+ 		drm_gem_object_put_unlocked(&efbdev->efb.obj->base);
+@@ -493,7 +493,7 @@ int evdi_fbdev_init(struct drm_device *dev)
+ 	evdi->fbdev = efbdev;
+ 	drm_fb_helper_prepare(dev, &efbdev->helper, &evdi_fb_helper_funcs);
+ 
+-#if KERNEL_VERSION(5, 7, 0) <= LINUX_VERSION_CODE
++#if KERNEL_VERSION(5, 7, 0) <= LINUX_VERSION_CODE || defined(EL8)
+ 	ret = drm_fb_helper_init(dev, &efbdev->helper);
+ #else
+ 	ret = drm_fb_helper_init(dev, &efbdev->helper, 1);
+@@ -503,7 +503,7 @@ int evdi_fbdev_init(struct drm_device *dev)
+ 		return ret;
+ 	}
+ 
+-#if KERNEL_VERSION(5, 7, 0) <= LINUX_VERSION_CODE
++#if KERNEL_VERSION(5, 7, 0) <= LINUX_VERSION_CODE || defined(EL8)
+ #else
+ 	drm_fb_helper_single_add_all_connectors(&efbdev->helper);
+ #endif
+diff --git a/module/evdi_gem.c b/module/evdi_gem.c
+index 5897438..e4a7e3b 100644
+--- a/module/evdi_gem.c
++++ b/module/evdi_gem.c
+@@ -14,6 +14,7 @@
+ #include <drm/drmP.h>
+ #endif
+ #include "evdi_drm_drv.h"
++#include "evdi_params.h"
+ #include <linux/shmem_fs.h>
+ #include <linux/dma-buf.h>
+ #include <drm/drm_cache.h>
+@@ -101,7 +102,7 @@ evdi_gem_create(struct drm_file *file,
+ 		kfree(obj);
+ 		return ret;
+ 	}
+-#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE
++#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE || defined(EL8)
+ 	drm_gem_object_put(&obj->base);
+ #else
+ 	drm_gem_object_put_unlocked(&obj->base);
+@@ -344,6 +345,9 @@ evdi_prime_import_sg_table(struct drm_device *dev,
+ 	struct evdi_gem_object *obj;
+ 	int npages;
+ 
++	if (evdi_disable_texture_import)
++		return ERR_PTR(-ENOMEM);
++
+ 	obj = evdi_gem_alloc_object(dev, attach->dmabuf->size);
+ 	if (IS_ERR(obj))
+ 		return ERR_CAST(obj);
+@@ -368,7 +372,7 @@ evdi_prime_import_sg_table(struct drm_device *dev,
+ struct sg_table *evdi_prime_get_sg_table(struct drm_gem_object *obj)
+ {
+ 	struct evdi_gem_object *bo = to_evdi_bo(obj);
+-	#if KERNEL_VERSION(5, 10, 0) <= LINUX_VERSION_CODE
++	#if KERNEL_VERSION(5, 10, 0) <= LINUX_VERSION_CODE || defined(EL8)
+ 		return drm_prime_pages_to_sg(obj->dev, bo->pages, bo->base.size >> PAGE_SHIFT);
+ 	#else
+ 		return drm_prime_pages_to_sg(bo->pages, bo->base.size >> PAGE_SHIFT);
+diff --git a/module/evdi_modeset.c b/module/evdi_modeset.c
+index f1d9269..b8f3e59 100644
+--- a/module/evdi_modeset.c
++++ b/module/evdi_modeset.c
+@@ -12,7 +12,8 @@
+  */
+ 
+ #include <linux/version.h>
+-#if KERNEL_VERSION(5, 5, 0) <= LINUX_VERSION_CODE || defined(EL8)
++#if KERNEL_VERSION(5, 0, 0) <= LINUX_VERSION_CODE || defined(EL8)
++#include <drm/drm_damage_helper.h>
+ #else
+ #include <drm/drmP.h>
+ #endif
+@@ -25,7 +26,11 @@
+ #include "evdi_drm_drv.h"
+ #include "evdi_cursor.h"
+ #include "evdi_params.h"
++#if KERNEL_VERSION(5, 13, 0) <= LINUX_VERSION_CODE
++#include <drm/drm_gem_atomic_helper.h>
++#else
+ #include <drm/drm_gem_framebuffer_helper.h>
++#endif
+ 
+ static void evdi_crtc_dpms(__always_unused struct drm_crtc *crtc,
+ 			   __always_unused int mode)
+@@ -36,6 +41,7 @@ static void evdi_crtc_dpms(__always_unused struct drm_crtc *crtc,
+ static void evdi_crtc_disable(__always_unused struct drm_crtc *crtc)
+ {
+ 	EVDI_CHECKPT();
++	drm_crtc_vblank_off(crtc);
+ }
+ 
+ static void evdi_crtc_destroy(struct drm_crtc *crtc)
+@@ -133,7 +139,7 @@ static int evdi_crtc_cursor_set(struct drm_crtc *crtc,
+ 	evdi_cursor_set(evdi->cursor,
+ 			eobj, width, height, hot_x, hot_y,
+ 			format, stride);
+-#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE
++#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE || defined(EL8)
+ 	drm_gem_object_put(obj);
+ #else
+ 	drm_gem_object_put_unlocked(obj);
+@@ -203,13 +209,28 @@ static const struct drm_crtc_funcs evdi_crtc_funcs = {
+ };
+ 
+ static void evdi_plane_atomic_update(struct drm_plane *plane,
+-				     struct drm_plane_state *old_state)
++#if KERNEL_VERSION(5, 13, 0) <= LINUX_VERSION_CODE
++				     struct drm_atomic_state *atom_state
++#else
++				     struct drm_plane_state *old_state
++#endif
++		)
+ {
++#if KERNEL_VERSION(5, 13, 0) <= LINUX_VERSION_CODE
++	struct drm_plane_state *old_state = drm_atomic_get_old_plane_state(atom_state, plane);
++#else
++#endif
+ 	struct drm_plane_state *state;
+ 	struct evdi_device *evdi;
+ 	struct evdi_painter *painter;
+ 	struct drm_crtc *crtc;
+ 
++#if KERNEL_VERSION(5, 0, 0) <= LINUX_VERSION_CODE || defined(EL8)
++	struct drm_atomic_helper_damage_iter iter;
++	struct drm_rect rect;
++	struct drm_clip_rect clip_rect;
++#endif
++
+ 	if (!plane || !plane->state) {
+ 		EVDI_WARN("Plane state is null\n");
+ 		return;
+@@ -251,10 +272,28 @@ static void evdi_plane_atomic_update(struct drm_plane *plane,
+ 		    evdi_painter_needs_full_modeset(painter)) {
+ 
+ 			evdi_painter_set_scanout_buffer(painter, efb);
++
++#if KERNEL_VERSION(5, 0, 0) <= LINUX_VERSION_CODE || defined(EL8)
++			state->visible = true;
++			state->src.x1 = 0;
++			state->src.y1 = 0;
++			state->src.x2 = fb->width << 16;
++			state->src.y2 = fb->height << 16;
++
++			drm_atomic_helper_damage_iter_init(&iter, old_state, state);
++			while (drm_atomic_helper_damage_iter_next(&iter, &rect)) {
++				clip_rect.x1 = rect.x1;
++				clip_rect.y1 = rect.y1;
++				clip_rect.x2 = rect.x2;
++				clip_rect.y2 = rect.y2;
++				evdi_painter_mark_dirty(evdi, &clip_rect);
++			}
++#endif
++
++		};
++
++		if (evdi_painter_get_num_dirts(painter) == 0)
+ 			evdi_painter_mark_dirty(evdi, &fullscreen_rect);
+-		} else if (evdi_painter_get_num_dirts(painter) == 0) {
+-			evdi_painter_mark_dirty(evdi, &fullscreen_rect);
+-		}
+ 	}
+ }
+ 
+@@ -268,8 +307,17 @@ static void evdi_cursor_atomic_get_rect(struct drm_clip_rect *rect,
+ }
+ 
+ static void evdi_cursor_atomic_update(struct drm_plane *plane,
+-				      struct drm_plane_state *old_state)
++#if KERNEL_VERSION(5, 13, 0) <= LINUX_VERSION_CODE
++				     struct drm_atomic_state *atom_state
++#else
++				     struct drm_plane_state *old_state
++#endif
++		)
+ {
++#if KERNEL_VERSION(5, 13, 0) <= LINUX_VERSION_CODE
++	struct drm_plane_state *old_state = drm_atomic_get_old_plane_state(atom_state, plane);
++#else
++#endif
+ 	if (plane && plane->state && plane->dev && plane->dev->dev_private) {
+ 		struct drm_plane_state *state = plane->state;
+ 		struct evdi_device *evdi = plane->dev->dev_private;
+@@ -329,12 +377,20 @@ static void evdi_cursor_atomic_update(struct drm_plane *plane,
+ 
+ static const struct drm_plane_helper_funcs evdi_plane_helper_funcs = {
+ 	.atomic_update = evdi_plane_atomic_update,
++#if KERNEL_VERSION(5, 13, 0) <= LINUX_VERSION_CODE
++	.prepare_fb = drm_gem_plane_helper_prepare_fb
++#else
+ 	.prepare_fb = drm_gem_fb_prepare_fb
++#endif
+ };
+ 
+ static const struct drm_plane_helper_funcs evdi_cursor_helper_funcs = {
+ 	.atomic_update = evdi_cursor_atomic_update,
++#if KERNEL_VERSION(5, 13, 0) <= LINUX_VERSION_CODE
++	.prepare_fb = drm_gem_plane_helper_prepare_fb
++#else
+ 	.prepare_fb = drm_gem_fb_prepare_fb
++#endif
+ };
+ 
+ static const struct drm_plane_funcs evdi_plane_funcs = {
+@@ -404,6 +460,11 @@ static int evdi_crtc_init(struct drm_device *dev)
+ 
+ 	primary_plane = evdi_create_plane(dev, DRM_PLANE_TYPE_PRIMARY,
+ 					  &evdi_plane_helper_funcs);
++
++#if KERNEL_VERSION(5, 0, 0) <= LINUX_VERSION_CODE || defined(EL8)
++	drm_plane_enable_fb_damage_clips(primary_plane);
++#endif
++
+ 	status = drm_crtc_init_with_planes(dev, crtc,
+ 					   primary_plane, cursor_plane,
+ 					   &evdi_crtc_funcs,
+@@ -424,7 +485,7 @@ static int evdi_atomic_check(struct drm_device *dev,
+ 	int i;
+ 	struct evdi_device *evdi = dev->dev_private;
+ 
+-	if (evdi_painter_needs_full_modeset(evdi->painter)) {
++	if (state->allow_modeset && evdi_painter_needs_full_modeset(evdi->painter)) {
+ 		for_each_new_crtc_in_state(state, crtc, crtc_state, i) {
+ 			crtc_state->active_changed = true;
+ 			crtc_state->mode_changed = true;
+diff --git a/module/evdi_painter.c b/module/evdi_painter.c
+index 4747f6b..47f96ef 100644
+--- a/module/evdi_painter.c
++++ b/module/evdi_painter.c
+@@ -239,7 +239,6 @@ u8 *evdi_painter_get_edid_copy(struct evdi_device *evdi)
+ 			memcpy(block,
+ 			       evdi->painter->edid,
+ 			       evdi->painter->edid_length);
+-			EVDI_DEBUG("(dev=%d) EDID valid\n", evdi->dev_index);
+ 		}
+ 	}
+ 	painter_unlock(evdi->painter);
+@@ -318,7 +317,7 @@ static void evdi_painter_send_event(struct evdi_painter *painter,
+ 	}
+ 
+ 	if (!painter->drm_filp) {
+-		EVDI_WARN("Painter is not connected!");
++		EVDI_VERBOSE("Painter is not connected!");
+ 		drm_event_cancel_free(painter->drm_device, event);
+ 		return;
+ 	}
+@@ -496,31 +495,6 @@ static void evdi_painter_send_dpms(struct evdi_painter *painter, int mode)
+ 	evdi_painter_send_event(painter, event);
+ }
+ 
+-static struct drm_pending_event *create_crtc_state_event(int state)
+-{
+-	struct evdi_event_crtc_state_pending *event;
+-
+-	event = kzalloc(sizeof(*event), GFP_KERNEL);
+-	if (!event) {
+-		EVDI_ERROR("Failed to create crtc state event");
+-		return NULL;
+-	}
+-
+-	event->crtc_state.base.type = DRM_EVDI_EVENT_CRTC_STATE;
+-	event->crtc_state.base.length = sizeof(event->crtc_state);
+-	event->crtc_state.state = state;
+-	event->base.event = &event->crtc_state.base;
+-	return &event->base;
+-}
+-
+-static void evdi_painter_send_crtc_state(struct evdi_painter *painter,
+-					 int state)
+-{
+-	struct drm_pending_event *event = create_crtc_state_event(state);
+-
+-	evdi_painter_send_event(painter, event);
+-}
+-
+ static struct drm_pending_event *create_mode_changed_event(
+ 	struct drm_display_mode *current_mode,
+ 	int32_t bits_per_pixel,
+@@ -591,7 +565,8 @@ struct drm_clip_rect evdi_painter_framebuffer_size(
+ 	painter_lock(painter);
+ 	efb = painter->scanout_fb;
+ 	if (!efb) {
+-		EVDI_DEBUG("Scanout buffer not set.");
++		if (painter->is_connected)
++			EVDI_DEBUG("Scanout buffer not set.");
+ 		goto unlock;
+ 	}
+ 	rect.x1 = 0;
+@@ -618,14 +593,15 @@ void evdi_painter_mark_dirty(struct evdi_device *evdi,
+ 	painter_lock(painter);
+ 	efb = painter->scanout_fb;
+ 	if (!efb) {
+-		EVDI_DEBUG("(dev=%d) Skip clip rect. Scanout buffer not set.\n",
++		if (painter->is_connected)
++			EVDI_DEBUG("(card%d) Skip clip rect. Scanout buffer not set.\n",
+ 			   evdi->dev_index);
+ 		goto unlock;
+ 	}
+ 
+ 	rect = evdi_framebuffer_sanitize_rect(efb, dirty_rect);
+ 
+-	EVDI_VERBOSE("(dev=%d) %d,%d-%d,%d\n", evdi->dev_index, rect.x1,
++	EVDI_VERBOSE("(card%d) %d,%d-%d,%d\n", evdi->dev_index, rect.x1,
+ 		     rect.y1, rect.x2, rect.y2);
+ 
+ 	if (painter->num_dirts == MAX_DIRTS)
+@@ -707,38 +683,47 @@ void evdi_painter_send_update_ready_if_needed(struct evdi_painter *painter)
+ 	}
+ }
+ 
++const char *dpms_str[] = { "on", "standby", "suspend", "off" };
++
+ void evdi_painter_dpms_notify(struct evdi_device *evdi, int mode)
+ {
+ 	struct evdi_painter *painter = evdi->painter;
++	const char *mode_str;
+ 
+-	if (painter) {
+-		EVDI_DEBUG("(dev=%d) Notifying dpms mode: %d\n",
+-			   evdi->dev_index, mode);
+-		evdi_painter_send_dpms(painter, mode);
+-	} else {
+-		EVDI_WARN("Painter does not exist!");
++	if (!painter) {
++		EVDI_WARN("(card%d) Painter does not exist!", evdi->dev_index);
++		return;
+ 	}
+-}
+ 
+-void evdi_painter_crtc_state_notify(struct evdi_device *evdi, int state)
+-{
+-	struct evdi_painter *painter = evdi->painter;
++	if (!painter->is_connected)
++		return;
+ 
+-	if (painter) {
+-		EVDI_DEBUG("(dev=%d) Notifying crtc state: %d\n",
+-			   evdi->dev_index, state);
+-		evdi_painter_send_crtc_state(painter, state);
+-	} else {
+-		EVDI_WARN("Painter does not exist!");
+-	}
++	switch (mode) {
++	case DRM_MODE_DPMS_ON:
++	case DRM_MODE_DPMS_STANDBY:
++	case DRM_MODE_DPMS_SUSPEND:
++	case DRM_MODE_DPMS_OFF:
++		mode_str = dpms_str[mode];
++		break;
++	default:
++		mode_str = "unknown";
++	};
++	EVDI_INFO("(card%d) Notifying display power state: %s",
++		   evdi->dev_index, mode_str);
++	evdi_painter_send_dpms(painter, mode);
+ }
+ 
+-static void evdi_log_pixel_format(uint32_t pixel_format)
++static void evdi_log_pixel_format(uint32_t pixel_format,
++		char *buf, size_t size)
+ {
++#if KERNEL_VERSION(5, 14, 0) <= LINUX_VERSION_CODE
++	snprintf(buf, size, "pixel format %p4cc", &pixel_format);
++#else
+ 	struct drm_format_name_buf format_name;
+ 
+ 	drm_get_format_name(pixel_format, &format_name);
+-	EVDI_DEBUG("pixel format %s\n", format_name.str);
++	snprintf(buf, size, "pixel format %s", format_name.str);
++#endif
+ }
+ 
+ void evdi_painter_mode_changed_notify(struct evdi_device *evdi,
+@@ -748,6 +733,7 @@ void evdi_painter_mode_changed_notify(struct evdi_device *evdi,
+ 	struct drm_framebuffer *fb;
+ 	int bits_per_pixel;
+ 	uint32_t pixel_format;
++	char buf[100];
+ 
+ 	if (painter == NULL)
+ 		return;
+@@ -759,10 +745,11 @@ void evdi_painter_mode_changed_notify(struct evdi_device *evdi,
+ 	bits_per_pixel = fb->format->cpp[0] * 8;
+ 	pixel_format = fb->format->format;
+ 
+-	EVDI_DEBUG("(dev=%d) Notifying mode changed: %dx%d@%d; bpp %d; ",
++
++	evdi_log_pixel_format(pixel_format, buf, sizeof(buf));
++	EVDI_INFO("(card%d) Notifying mode changed: %dx%d@%d; bpp %d; %s",
+ 		   evdi->dev_index, new_mode->hdisplay, new_mode->vdisplay,
+-		   drm_mode_vrefresh(new_mode), bits_per_pixel);
+-	evdi_log_pixel_format(pixel_format);
++		   drm_mode_vrefresh(new_mode), bits_per_pixel, buf);
+ 
+ 	evdi_painter_send_mode_changed(painter,
+ 				       new_mode,
+@@ -795,7 +782,7 @@ static void evdi_add_i2c_adapter(struct evdi_device *evdi)
+ 	evdi->i2c_adapter = kzalloc(sizeof(*evdi->i2c_adapter), GFP_KERNEL);
+ 
+ 	if (!evdi->i2c_adapter) {
+-		EVDI_ERROR("(dev=%d) Failed to allocate for i2c adapter",
++		EVDI_ERROR("(card%d) Failed to allocate for i2c adapter",
+ 			evdi->dev_index);
+ 		return;
+ 	}
+@@ -805,19 +792,19 @@ static void evdi_add_i2c_adapter(struct evdi_device *evdi)
+ 	if (result) {
+ 		kfree(evdi->i2c_adapter);
+ 		evdi->i2c_adapter = NULL;
+-		EVDI_ERROR("(dev=%d) Failed to add i2c adapter, error %d",
++		EVDI_ERROR("(card%d) Failed to add i2c adapter, error %d",
+ 			evdi->dev_index, result);
+ 		return;
+ 	}
+ 
+-	EVDI_DEBUG("(dev=%d) Added i2c adapter bus number %d",
++	EVDI_INFO("(card%d) Added i2c adapter bus number %d",
+ 		evdi->dev_index, evdi->i2c_adapter->nr);
+ 
+ 	result = sysfs_create_link(&evdi->conn->kdev->kobj,
+ 			&evdi->i2c_adapter->dev.kobj, "ddc");
+ 
+ 	if (result) {
+-		EVDI_ERROR("(dev=%d) Failed to create sysfs link, error %d",
++		EVDI_ERROR("(card%d) Failed to create sysfs link, error %d",
+ 			evdi->dev_index, result);
+ 		return;
+ 	}
+@@ -826,7 +813,7 @@ static void evdi_add_i2c_adapter(struct evdi_device *evdi)
+ static void evdi_remove_i2c_adapter(struct evdi_device *evdi)
+ {
+ 	if (evdi->i2c_adapter) {
+-		EVDI_DEBUG("(dev=%d) Removing i2c adapter bus number %d",
++		EVDI_INFO("(card%d) Removing i2c adapter bus number %d",
+ 			evdi->dev_index, evdi->i2c_adapter->nr);
+ 
+ 		sysfs_remove_link(&evdi->conn->kdev->kobj, "ddc");
+@@ -842,15 +829,14 @@ static int
+ evdi_painter_connect(struct evdi_device *evdi,
+ 		     void const __user *edid_data, unsigned int edid_length,
+ 		     uint32_t sku_area_limit,
+-		     struct drm_file *file, int dev_index)
++		     struct drm_file *file, __always_unused int dev_index)
+ {
+ 	struct evdi_painter *painter = evdi->painter;
+ 	struct edid *new_edid = NULL;
+ 	int expected_edid_size = 0;
++	char buf[100];
+ 
+-	EVDI_DEBUG("(dev=%d) Process is trying to connect\n",
+-		   evdi->dev_index);
+-	evdi_log_process();
++	evdi_log_process(buf, sizeof(buf));
+ 
+ 	if (edid_length < sizeof(struct edid)) {
+ 		EVDI_ERROR("Edid length too small\n");
+@@ -867,7 +853,7 @@ evdi_painter_connect(struct evdi_device *evdi,
+ 		return -ENOMEM;
+ 
+ 	if (copy_from_user(new_edid, edid_data, edid_length)) {
+-		EVDI_ERROR("(dev=%d) Failed to read edid\n", dev_index);
++		EVDI_ERROR("(card%d) Failed to read edid\n", evdi->dev_index);
+ 		kfree(new_edid);
+ 		return -EFAULT;
+ 	}
+@@ -882,12 +868,11 @@ evdi_painter_connect(struct evdi_device *evdi,
+ 	}
+ 
+ 	if (painter->drm_filp)
+-		EVDI_WARN("(dev=%d) Double connect - replacing %p with %p\n",
+-			  dev_index, painter->drm_filp, file);
++		EVDI_WARN("(card%d) Double connect - replacing %p with %p\n",
++			  evdi->dev_index, painter->drm_filp, file);
+ 
+ 	painter_lock(painter);
+ 
+-	evdi->dev_index = dev_index;
+ 	evdi->sku_area_limit = sku_area_limit;
+ 	painter->drm_filp = file;
+ 	kfree(painter->edid);
+@@ -900,8 +885,7 @@ evdi_painter_connect(struct evdi_device *evdi,
+ 
+ 	painter_unlock(painter);
+ 
+-	EVDI_DEBUG("(dev=%d) Connected with %p\n", evdi->dev_index,
+-		   painter->drm_filp);
++	EVDI_INFO("(card%d) Connected with %s\n", evdi->dev_index, buf);
+ 
+ 	drm_helper_hpd_irq_event(evdi->ddev);
+ 
+@@ -912,6 +896,7 @@ static int evdi_painter_disconnect(struct evdi_device *evdi,
+ 	struct drm_file *file)
+ {
+ 	struct evdi_painter *painter = evdi->painter;
++	char buf[100];
+ 
+ 	EVDI_CHECKPT();
+ 
+@@ -929,8 +914,8 @@ static int evdi_painter_disconnect(struct evdi_device *evdi,
+ 
+ 	painter->is_connected = false;
+ 
+-	EVDI_DEBUG("(dev=%d) Disconnected from %p\n", evdi->dev_index,
+-		   painter->drm_filp);
++	evdi_log_process(buf, sizeof(buf));
++	EVDI_INFO("(card%d) Disconnected from %s\n", evdi->dev_index, buf);
+ 	evdi_painter_events_cleanup(painter);
+ 
+ 	evdi_painter_send_vblank(painter);
+@@ -944,7 +929,6 @@ static int evdi_painter_disconnect(struct evdi_device *evdi,
+ 	evdi_remove_i2c_adapter(evdi);
+ 
+ 	painter->drm_filp = NULL;
+-	evdi->dev_index = -1;
+ 
+ 	painter->was_update_requested = false;
+ 	evdi->cursor_events_enabled = false;
+@@ -962,10 +946,8 @@ void evdi_painter_close(struct evdi_device *evdi, struct drm_file *file)
+ {
+ 	EVDI_CHECKPT();
+ 
+-	if (evdi->painter)
++	if (evdi->painter && file == evdi->painter->drm_filp)
+ 		evdi_painter_disconnect(evdi, file);
+-	else
+-		EVDI_WARN("Painter does not exist!");
+ }
+ 
+ int evdi_painter_connect_ioctl(struct drm_device *drm_dev, void *data,
+@@ -989,12 +971,12 @@ int evdi_painter_connect_ioctl(struct drm_device *drm_dev, void *data,
+ 			ret = evdi_painter_disconnect(evdi, file);
+ 
+ 		if (ret) {
+-			EVDI_WARN("(dev=%d)(pid=%d) disconnect failed\n",
++			EVDI_WARN("(card%d)(pid=%d) disconnect failed\n",
+ 				  evdi->dev_index, (int)task_pid_nr(current));
+ 		}
+ 		return ret;
+ 	}
+-	EVDI_WARN("Painter does not exist!");
++	EVDI_WARN("(card%d) Painter does not exist!", evdi->dev_index);
+ 	return -ENODEV;
+ }
+ 
+@@ -1030,7 +1012,7 @@ int evdi_painter_grabpix_ioctl(struct drm_device *drm_dev, void *data,
+ 	painter_lock(painter);
+ 
+ 	if (painter->was_update_requested) {
+-		EVDI_WARN("(dev=%d) Update ready not sent,",
++		EVDI_WARN("(card%d) Update ready not sent,",
+ 			  evdi->dev_index);
+ 		EVDI_WARN(" but pixels are grabbed.\n");
+ 	}
+@@ -1149,7 +1131,7 @@ int evdi_painter_request_update_ioctl(struct drm_device *drm_dev,
+ 
+ 		if (painter->was_update_requested) {
+ 			EVDI_WARN
+-			  ("(dev=%d) Update was already requested - ignoring\n",
++			  ("(card%d) Update was already requested - ignoring\n",
+ 			   evdi->dev_index);
+ 		} else {
+ 			if (painter->num_dirts > 0)
+diff --git a/module/evdi_params.c b/module/evdi_params.c
+index 3e55f42..30262f9 100644
+--- a/module/evdi_params.c
++++ b/module/evdi_params.c
+@@ -15,6 +15,7 @@
+ 
+ unsigned int evdi_loglevel __read_mostly = EVDI_LOGLEVEL_DEBUG;
+ unsigned short int evdi_initial_device_count __read_mostly;
++unsigned short int evdi_disable_texture_import __read_mostly;
+ 
+ module_param_named(initial_loglevel, evdi_loglevel, int, 0400);
+ MODULE_PARM_DESC(initial_loglevel, "Initial log level");
+@@ -22,3 +23,7 @@ MODULE_PARM_DESC(initial_loglevel, "Initial log level");
+ module_param_named(initial_device_count,
+ 		   evdi_initial_device_count, ushort, 0644);
+ MODULE_PARM_DESC(initial_device_count, "Initial DRM device count (default: 0)");
++
++module_param_named(disable_texture_import,
++		   evdi_disable_texture_import, ushort, 0644);
++MODULE_PARM_DESC(disable_texture_import, "Disable fast path GPU texture import (default: 0, set 1 to disable)");
+diff --git a/module/evdi_params.h b/module/evdi_params.h
+index 5d67c6b..d914eec 100644
+--- a/module/evdi_params.h
++++ b/module/evdi_params.h
+@@ -11,5 +11,6 @@
+ 
+ extern unsigned int evdi_loglevel;
+ extern unsigned short int evdi_initial_device_count;
++extern unsigned short int evdi_disable_texture_import;
+ 
+ #endif /* EVDI_PARAMS_H */
+diff --git a/module/evdi_platform_dev.c b/module/evdi_platform_dev.c
+index e6d2838..d03663e 100644
+--- a/module/evdi_platform_dev.c
++++ b/module/evdi_platform_dev.c
+@@ -21,7 +21,7 @@
+ #include <linux/dma-mapping.h>
+ #include <linux/platform_device.h>
+ #include <linux/slab.h>
+-#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE
++#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE || defined(EL8)
+ #include <linux/iommu.h>
+ #endif
+ 
+@@ -61,7 +61,7 @@ int evdi_platform_device_probe(struct platform_device *pdev)
+ 	struct drm_device *dev;
+ 	struct evdi_platform_device_data *data;
+ 
+-#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE
++#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE || defined(EL8)
+ #if IS_ENABLED(CONFIG_IOMMU_API) && defined(CONFIG_INTEL_IOMMU)
+ 	struct dev_iommu iommu;
+ #endif
+@@ -73,7 +73,7 @@ int evdi_platform_device_probe(struct platform_device *pdev)
+ 		return -ENOMEM;
+ /* Intel-IOMMU workaround: platform-bus unsupported, force ID-mapping */
+ #if IS_ENABLED(CONFIG_IOMMU_API) && defined(CONFIG_INTEL_IOMMU)
+-#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE
++#if KERNEL_VERSION(5, 9, 0) <= LINUX_VERSION_CODE || defined(EL8)
+ 	memset(&iommu, 0, sizeof(iommu));
+ 	iommu.priv = (void *)-1;
+ 	pdev->dev.iommu = &iommu;
