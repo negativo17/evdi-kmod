@@ -7,20 +7,28 @@
 
 %global debug_package %{nil}
 
+%global mok_algo sha512
+%global mok_key /usr/src/akmods/mok.key
+%global mok_der /usr/src/akmods/mok.der
+
 %define __spec_install_post \
   %{__arch_install_post}\
   %{__os_install_post}\
-  %{__mod_compress_install_post}
+  %{__mod_install_post}
 
-%define __mod_compress_install_post \
+%define __mod_install_post \
   if [ $kernel_version ]; then \
     find %{buildroot} -type f -name '*.ko' | xargs %{__strip} --strip-debug; \
+    if [ -f /usr/src/akmods/mok.key ] && [ -f /usr/src/akmods/mok.der ]; then \
+      find %{buildroot} -type f -name '*.ko' | xargs echo; \
+      find %{buildroot} -type f -name '*.ko' | xargs -L1 /usr/lib/modules/${kernel_version%%___*}/build/scripts/sign-file %{mok_algo} %{mok_key} %{mok_der}; \
+    fi \
     find %{buildroot} -type f -name '*.ko' | xargs xz; \
   fi
 
 Name:           evdi-kmod
 Version:        1.9.1
-Release:        3%{?dist}
+Release:        4%{?dist}
 Summary:        DisplayLink VGA/HDMI display driver kernel module
 License:        GPLv2
 URL:            https://github.com/DisplayLink/evdi
@@ -66,6 +74,9 @@ done
 %{?akmod_install}
 
 %changelog
+* Tue Sep 14 2021 Simone Caronni <negativo17@gmail.com> - 1.9.1-4
+- Add automatic signing workaround.
+
 * Thu Sep 02 2021 Simone Caronni <negativo17@gmail.com> - 1.9.1-3
 - Update module with latest upstream patches.
 
