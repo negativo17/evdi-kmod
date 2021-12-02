@@ -43,7 +43,6 @@ Source0:        https://github.com/DisplayLink/evdi/archive/v%{version}.tar.gz#/
 %else
 Source0:        https://github.com/DisplayLink/evdi/archive/%{commit0}.tar.gz#/evdi-%{shortcommit0}.tar.gz
 %endif
-Patch0:         evdi-module-git.patch
 
 # get the needed BuildRequires (in parts depending on what we build for)
 BuildRequires:  kmodtool
