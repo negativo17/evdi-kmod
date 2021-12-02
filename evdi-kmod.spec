@@ -1,3 +1,8 @@
+%global commit0 d6b28414a4ceb41a904077318b48fa8a7d8981d1
+%global date 20211202
+%global shortcommit0 %(c=%{commit0}; echo ${c:0:7})
+#global tag %{version}
+
 # buildforkernels macro hint: when you build a new version or a new release
 # that contains bugfixes or other improvements then you must disable the
 # "buildforkernels newest" macro for just that build; immediately after
@@ -28,12 +33,16 @@
 
 Name:           evdi-kmod
 Version:        1.9.1
-Release:        4%{?dist}
+Release:        5%{!?tag:.%{date}git%{shortcommit0}}%{?dist}
 Summary:        DisplayLink VGA/HDMI display driver kernel module
 License:        GPLv2
 URL:            https://github.com/DisplayLink/evdi
 
+%if 0%{?tag:1}
 Source0:        https://github.com/DisplayLink/evdi/archive/v%{version}.tar.gz#/evdi-%{version}.tar.gz
+%else
+Source0:        https://github.com/DisplayLink/evdi/archive/%{commit0}.tar.gz#/evdi-%{shortcommit0}.tar.gz
+%endif
 Patch0:         evdi-module-git.patch
 
 # get the needed BuildRequires (in parts depending on what we build for)
@@ -51,7 +60,11 @@ The DisplaLink %{version} display driver kernel module for kernel %{kversion}.
 # print kmodtool output for debugging purposes:
 kmodtool  --target %{_target_cpu}  --repo negativo17.org --kmodname %{name} %{?buildforkernels:--%{buildforkernels}} %{?kernels:--for-kernels "%{?kernels}"} 2>/dev/null
 
+%if 0%{?tag:1}
 %autosetup -p1 -n evdi-%{version}
+%else
+%autosetup -p1 -n evdi-%{commit0}
+%endif
 
 for kernel_version in %{?kernel_versions}; do
     mkdir _kmod_build_${kernel_version%%___*}
@@ -74,6 +87,9 @@ done
 %{?akmod_install}
 
 %changelog
+* Thu Dec 02 2021 Simone Caronni <negativo17@gmail.com> - 1.9.1-5.20211202gitd6b2841
+- Update to latest snapshot.
+
 * Tue Sep 14 2021 Simone Caronni <negativo17@gmail.com> - 1.9.1-4
 - Add automatic signing workaround.
 
