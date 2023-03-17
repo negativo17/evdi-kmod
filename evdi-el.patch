@@ -1,14 +1,7 @@
-commit 434dd4ff3c071b86adbde21f0aa813ec33f9acb7
-Author: jodalein <rene@fuchs-im-haus.de>
-Date:   Thu Nov 24 13:22:12 2022 +0100
-
-    Add files via upload
-
-diff --git a/module/evdi_drm_drv.h b/module/evdi_drm_drv.h
-index 4914da3..1f1287d 100644
---- a/module/evdi_drm_drv.h
-+++ b/module/evdi_drm_drv.h
-@@ -27,7 +27,7 @@
+diff -Naur evdi-1.13.0.old/module/evdi_drm_drv.h evdi-1.13.0/module/evdi_drm_drv.h
+--- evdi-1.13.0.old/module/evdi_drm_drv.h	2023-03-06 13:05:18.000000000 +0100
++++ evdi-1.13.0/module/evdi_drm_drv.h	2023-03-17 07:24:22.478720989 +0100
+@@ -28,7 +28,7 @@
  #endif
  #if KERNEL_VERSION(5, 15, 0) <= LINUX_VERSION_CODE || defined(EL9)
  #include <drm/drm_framebuffer.h>
@@ -17,10 +10,9 @@ index 4914da3..1f1287d 100644
  #include <drm/drm_irq.h>
  #endif
  #include <drm/drm_crtc.h>
-diff --git a/module/evdi_gem.c b/module/evdi_gem.c
-index 4c14356..1ac0db6 100644
---- a/module/evdi_gem.c
-+++ b/module/evdi_gem.c
+diff -Naur evdi-1.13.0.old/module/evdi_gem.c evdi-1.13.0/module/evdi_gem.c
+--- evdi-1.13.0.old/module/evdi_gem.c	2023-03-06 13:05:18.000000000 +0100
++++ evdi-1.13.0/module/evdi_gem.c	2023-03-17 07:24:22.478720989 +0100
 @@ -10,10 +10,6 @@
  
  #include <linux/sched.h>
@@ -32,7 +24,7 @@ index 4c14356..1ac0db6 100644
  #if KERNEL_VERSION(5, 16, 0) <= LINUX_VERSION_CODE || defined(EL9)
  #include <drm/drm_prime.h>
  #include <drm/drm_file.h>
-@@ -291,7 +287,7 @@ int evdi_gem_vmap(struct evdi_gem_object *obj)
+@@ -295,7 +291,7 @@
  	int ret;
  
  	if (evdi_drm_gem_object_use_import_attach(&obj->base)) {
@@ -41,7 +33,7 @@ index 4c14356..1ac0db6 100644
  		struct iosys_map map = IOSYS_MAP_INIT_VADDR(NULL);
  #elif KERNEL_VERSION(5, 11, 0) <= LINUX_VERSION_CODE || defined(EL8)
  		struct dma_buf_map map = DMA_BUF_MAP_INIT_VADDR(NULL);
-@@ -324,7 +320,7 @@ int evdi_gem_vmap(struct evdi_gem_object *obj)
+@@ -328,7 +324,7 @@
  void evdi_gem_vunmap(struct evdi_gem_object *obj)
  {
  	if (evdi_drm_gem_object_use_import_attach(&obj->base)) {
@@ -50,7 +42,7 @@ index 4c14356..1ac0db6 100644
  		struct iosys_map map = IOSYS_MAP_INIT_VADDR(NULL);
  
  		if (obj->vmap_is_iomem)
-@@ -339,6 +335,7 @@ void evdi_gem_vunmap(struct evdi_gem_object *obj)
+@@ -343,6 +339,7 @@
  
  		if (obj->vmap_is_iomem)
  			dma_buf_map_set_vaddr_iomem(&map, obj->vmapping);
