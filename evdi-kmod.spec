@@ -44,6 +44,7 @@ Source0:        %{url}/archive/v%{version}.tar.gz#/evdi-%{version}.tar.gz
 Source0:        %{url}/archive/%{commit0}.tar.gz#/evdi-%{shortcommit0}.tar.gz
 %endif
 
+# https://github.com/DisplayLink/evdi/pull/407
 Patch0:         evdi-el.patch
 
 # get the needed BuildRequires (in parts depending on what we build for)
