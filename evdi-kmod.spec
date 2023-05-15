@@ -33,7 +33,7 @@
 
 Name:           evdi-kmod
 Version:        1.13.1
-Release:        2%{!?tag:.%{date}git%{shortcommit0}}%{?dist}
+Release:        3%{!?tag:.%{date}git%{shortcommit0}}%{?dist}
 Summary:        DisplayLink VGA/HDMI display driver kernel module
 License:        GPLv2
 URL:            https://github.com/DisplayLink/evdi
@@ -44,8 +44,7 @@ Source0:        %{url}/archive/v%{version}.tar.gz#/evdi-%{version}.tar.gz
 Source0:        %{url}/archive/%{commit0}.tar.gz#/evdi-%{shortcommit0}.tar.gz
 %endif
 
-# https://github.com/DisplayLink/evdi/pull/408
-Patch0:         evdi-el.patch
+Patch0:         https://github.com/DisplayLink/evdi/commit/c1865ecbf04df6759e336e4c68a3ebf895bd01d1.patch
 
 # get the needed BuildRequires (in parts depending on what we build for)
 BuildRequires:  kmodtool
@@ -89,6 +88,9 @@ done
 %{?akmod_install}
 
 %changelog
+* Mon May 15 2023 Simone Caronni <negativo17@gmail.com> - 1.13.1-3
+- EL patch has been merged upstream.
+
 * Wed May 10 2023 Simone Caronni <negativo17@gmail.com> - 1.13.1-2
 - Update EL patch.
 
