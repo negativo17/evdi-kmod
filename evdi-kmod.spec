@@ -48,6 +48,8 @@ for kernel_version in %{?kernel_versions}; do
 done
 
 %build
+# Module fails with distribution CFLAGS
+unset CFLAGS
 for kernel_version in %{?kernel_versions}; do
     pushd _kmod_build_${kernel_version%%___*}/
         %make_build -C "${kernel_version##*___}" M=$(pwd) modules
