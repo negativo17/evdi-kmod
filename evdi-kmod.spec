@@ -1,5 +1,5 @@
-%global commit0 a943d980743d07eb8e0e2d8915d8b692c03d4831
-%global date 20231123
+%global commit0 0313ecac7aa3990c6f9a0d0f258c87e20e116bdd
+%global date 20240104
 %global shortcommit0 %(c=%{commit0}; echo ${c:0:7})
 #global tag %{version}
 
@@ -10,7 +10,7 @@
 
 Name:           evdi-kmod
 Version:        1.14.1
-Release:        4%{!?tag:.%{date}git%{shortcommit0}}%{?dist}
+Release:        5%{!?tag:.%{date}git%{shortcommit0}}%{?dist}
 Summary:        DisplayLink VGA/HDMI display driver kernel module
 License:        GPLv2
 URL:            https://github.com/DisplayLink/evdi
@@ -65,6 +65,9 @@ done
 %{?akmod_install}
 
 %changelog
+* Mon Jan 08 2024 Simone Caronni <negativo17@gmail.com> - 1.14.1-5.20240104git0313eca
+- Update to latest snapshot.
+
 * Mon Nov 27 2023 Simone Caronni <negativo17@gmail.com> - 1.14.1-4.20231123gita943d98
 - Switch to snapshot which include build fixes for latest kernels.
 
