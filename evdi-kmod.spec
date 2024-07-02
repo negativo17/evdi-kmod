@@ -13,8 +13,8 @@
 %{!?kversion: %global kversion %(uname -r)}
 
 Name:           %{kmod_name}-kmod
-Version:        1.14.4
-Release:        2%{?dist}
+Version:        1.14.5
+Release:        1%{?dist}
 Summary:        DisplayLink VGA/HDMI display driver kernel module
 Epoch:          1
 License:        GPLv2
@@ -28,16 +28,11 @@ Source0:        %{url}/archive/%{commit0}.tar.gz#/%{kmod_name}-%{shortcommit0}.t
 
 BuildRequires:  elfutils-libelf-devel
 BuildRequires:  gcc
+BuildRequires:  kernel-abi-stablelists
 BuildRequires:  kernel-devel
+BuildRequires:  kernel-rpm-macros
 BuildRequires:  kmod
 BuildRequires:  redhat-rpm-config
-
-%if 0%{?rhel} == 7
-BuildRequires:  kernel-abi-whitelists
-%else
-BuildRequires:  kernel-abi-stablelists
-BuildRequires:  kernel-rpm-macros
-%endif
 
 %description
 This package provides the DisplayLink VGA/HDMI display kernel driver module.
@@ -111,6 +106,10 @@ rm -f %{buildroot}/lib/modules/%{kversion}/modules.*
 %config /etc/depmod.d/kmod-%{kmod_name}.conf
 
 %changelog
+* Tue Jul 02 2024 Simone Caronni <negativo17@gmail.com> - 1:1.14.5-1
+- Update to 1.14.5.
+- Drop EL7 support.
+
 * Wed Jun 05 2024 Simone Caronni <negativo17@gmail.com> - 1:1.14.4-2
 - Rebuild for latest kernel.
 
