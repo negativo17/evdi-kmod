@@ -9,7 +9,7 @@
 %global debug_package %{nil}
 
 Name:           evdi-kmod
-Version:        1.14.4
+Version:        1.14.5
 Release:        1%{?dist}
 Summary:        DisplayLink VGA/HDMI display driver kernel module
 License:        GPLv2
@@ -48,8 +48,12 @@ for kernel_version in %{?kernel_versions}; do
 done
 
 %build
-# Module fails with distribution CFLAGS
-unset CFLAGS
+# Catch any fork of RHEL
+%if 0%{?rhel}
+export EL%{?rhel}FLAG="-DEL%{?rhel}"
+%endif
+export DKMS_BUILD=1
+
 for kernel_version in %{?kernel_versions}; do
     pushd _kmod_build_${kernel_version%%___*}/
         %make_build -C "${kernel_version##*___}" M=$(pwd) modules
@@ -65,6 +69,9 @@ done
 %{?akmod_install}
 
 %changelog
+* Tue Jul 02 2024 Simone Caronni <negativo17@gmail.com> - 1.14.5-1
+- Update to 1.14.5.
+
 * Tue Apr 16 2024 Simone Caronni <negativo17@gmail.com> - 1.14.4-1
 - Update to 1.14.4.
 
