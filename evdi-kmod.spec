@@ -21,10 +21,6 @@ Source0:        %{url}/archive/v%{version}.tar.gz#/evdi-%{version}.tar.gz
 Source0:        %{url}/archive/%{commit0}.tar.gz#/evdi-%{shortcommit0}.tar.gz
 %endif
 
-Patch0:         https://patch-diff.githubusercontent.com/raw/DisplayLink/evdi/pull/498.patch
-Patch1:         https://raw.githubusercontent.com/displaylink-rpm/displaylink-rpm/refs/heads/master/align-with-linux-v6.11-plus.patch
-Patch2:         https://raw.githubusercontent.com/displaylink-rpm/displaylink-rpm/refs/heads/master/el9_5-build-fixes-and-el-audit-updates.patch
-
 # Get the needed BuildRequires (in parts depending on what we build for):
 BuildRequires:  kmodtool
 
