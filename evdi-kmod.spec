@@ -10,7 +10,7 @@
 
 Name:           evdi-kmod
 Version:        1.14.8%{!?tag:^%{date}git%{shortcommit0}}
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        DisplayLink VGA/HDMI display driver kernel module
 License:        GPLv2
 URL:            https://github.com/DisplayLink/evdi
@@ -48,13 +48,10 @@ for kernel_version in %{?kernel_versions}; do
 done
 
 %build
-# Catch any fork of RHEL
-%if 0%{?rhel}
-export EL%{?rhel}FLAG="-DEL%{?rhel}"
-%endif
 
 for kernel_version in %{?kernel_versions}; do
     pushd _kmod_build_${kernel_version%%___*}/
+        unset CFLAGS
         %make_build -C "${kernel_version##*___}" M=$(pwd) modules
     popd
 done
@@ -68,6 +65,9 @@ done
 %{?akmod_install}
 
 %changelog
+* Sat Jan 11 2025 Simone Caronni <negativo17@gmail.com> - 1.14.8-2
+- Module does not compile successfully with default compiler flags (#3).
+
 * Sun Dec 22 2024 Simone Caronni <negativo17@gmail.com> - 1.14.8-1
 - Update to 1.14.8.
 
