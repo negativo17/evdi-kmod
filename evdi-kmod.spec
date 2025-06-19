@@ -5,7 +5,7 @@
 
 Name:           evdi-kmod
 Version:        1.14.10
-Release:        2%{?dist}
+Release:        3%{?dist}
 Summary:        DisplayLink VGA/HDMI display driver kernel module
 License:        GPLv2
 URL:            https://github.com/DisplayLink/evdi
@@ -56,6 +56,9 @@ done
 %{?akmod_install}
 
 %changelog
+* Thu Jun 19 2025 Simone Caronni <negativo17@gmail.com> - 1.14.10-3
+- Revert change that works for CentOS Stream (10.1) but not for EL (10.0).
+
 * Wed May 21 2025 Simone Caronni <negativo17@gmail.com> - 1.14.10-2
 - Add upstream patches.
 
