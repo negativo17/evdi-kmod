@@ -4,17 +4,15 @@
 %global debug_package %{nil}
 
 Name:           evdi-kmod
-Version:        1.14.10
-Release:        3%{?dist}
+Version:        1.14.11
+Release:        1%{?dist}
 Summary:        DisplayLink VGA/HDMI display driver kernel module
 License:        GPLv2
 URL:            https://github.com/DisplayLink/evdi
 
 Source0:        %{url}/archive/v%{version}.tar.gz#/evdi-%{version}.tar.gz
-Patch0:         https://github.com/DisplayLink/evdi/commit/ae34f70a02552b41697ba753323427281e977e17.patch
-Patch1:         https://github.com/DisplayLink/evdi/commit/3673a4b34d386921fc323ddbd2ef0e000022e2d4.patch
 # Required for CentOS Stream (10.1), not required for 10.0:
-Patch2:         0001-Revert-CentOS-Stream-10-change.patch
+Patch1:         0001-Revert-CentOS-Stream-10-change.patch
 
 # Get the needed BuildRequires (in parts depending on what we build for):
 BuildRequires:  kmodtool
@@ -56,6 +54,9 @@ done
 %{?akmod_install}
 
 %changelog
+* Tue Sep 02 2025 Simone Caronni <negativo17@gmail.com> - 1.14.11-1
+- Update to 1.4.11.
+
 * Thu Jun 19 2025 Simone Caronni <negativo17@gmail.com> - 1.14.10-3
 - Revert change that works for CentOS Stream (10.1) but not for EL (10.0).
 
