@@ -4,18 +4,13 @@
 %global debug_package %{nil}
 
 Name:           evdi-kmod
-Version:        1.14.11
-Release:        3%{?dist}
+Version:        1.14.12
+Release:        1%{?dist}
 Summary:        DisplayLink VGA/HDMI display driver kernel module
 License:        GPLv2
 URL:            https://github.com/DisplayLink/evdi
 
 Source0:        %{url}/archive/v%{version}.tar.gz#/evdi-%{version}.tar.gz
-Patch0:         https://github.com/DisplayLink/evdi/commit/149dbaea6ca49a20fa04636cf4a60ca5ee75b8a6.patch
-Patch1:         https://github.com/DisplayLink/evdi/commit/d00021b6a926b5ae14f45c95e908180422425b96.patch
-Patch2:         https://github.com/DisplayLink/evdi/commit/cc97fab0e2cfc7fba980f645b4901280018586db.patch
-Patch3:         https://github.com/DisplayLink/evdi/commit/9004c9ee6caeddc56b95cdaa82281e073035f251.patch
-Patch4:         evdi-el-fixes.patch
 
 # Get the needed BuildRequires (in parts depending on what we build for):
 BuildRequires:  kmodtool
@@ -57,6 +52,9 @@ done
 %{?akmod_install}
 
 %changelog
+* Mon Dec 22 2025 Simone Caronni <negativo17@gmail.com> - 1.14.12-1
+- Update to 1.14.12.
+
 * Mon Dec 01 2025 Simone Caronni <negativo17@gmail.com> - 1.14.11-3
 - Fix Makefile to properly parse VERSION_ID for EL version detection.
 - Adjust EL 9.7 and 10.1 definitions for 6.15 backports.
