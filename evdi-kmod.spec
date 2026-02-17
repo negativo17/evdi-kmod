@@ -3,14 +3,15 @@
 
 %global debug_package %{nil}
 
-Name:           evdi-kmod
-Version:        1.14.14
-Release:        1%{?dist}
-Summary:        DisplayLink VGA/HDMI display driver kernel module
-License:        GPLv2
-URL:            https://github.com/DisplayLink/evdi
+Name:       evdi-kmod
+Version:    1.14.14
+Release:    2%{?dist}
+Summary:    DisplayLink VGA/HDMI display driver kernel module
+License:    GPLv2
+URL:        https://github.com/DisplayLink/evdi
 
-Source0:        %{url}/archive/v%{version}.tar.gz#/evdi-%{version}.tar.gz
+Source0:    %{url}/archive/v%{version}.tar.gz#/evdi-%{version}.tar.gz
+Patch0:     https://github.com/DisplayLink/evdi/commit/c88fb924d4b1581d874f2786c9b62feef078a4e1.patch
 
 # Get the needed BuildRequires (in parts depending on what we build for):
 BuildRequires:  kmodtool
@@ -52,6 +53,9 @@ done
 %{?akmod_install}
 
 %changelog
+* Tue Feb 17 2026 Simone Caronni <negativo17@gmail.com> - 1.14.14-2
+- Fix build on aarch64.
+
 * Mon Feb 09 2026 Simone Caronni <negativo17@gmail.com> - 1.14.14-1
 - Update to 1.14.14.
 
