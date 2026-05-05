@@ -4,7 +4,7 @@
 %global debug_package %{nil}
 
 Name:       evdi-kmod
-Version:    1.14.15
+Version:    1.14.16
 Release:    1%{?dist}
 Summary:    DisplayLink VGA/HDMI display driver kernel module
 License:    GPLv2
@@ -52,6 +52,9 @@ done
 %{?akmod_install}
 
 %changelog
+* Tue May 05 2026 Simone Caronni <negativo17@gmail.com> - 1.14.16-1
+- Update to 1.14.16.
+
 * Wed Feb 25 2026 Simone Caronni <negativo17@gmail.com> - 1.14.15-1
 - Update to 1.14.15.
 
